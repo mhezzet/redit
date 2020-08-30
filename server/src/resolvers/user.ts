@@ -3,7 +3,6 @@ import {
   Ctx,
   Arg,
   Mutation,
-  InputType,
   Field,
   ObjectType,
   Query,
@@ -12,16 +11,11 @@ import { User } from "../entities/User";
 import { MyContext } from "../types";
 import argon2 from "argon2";
 import { EntityManager } from "@mikro-orm/postgresql";
-import { COOKIE_NAME } from "../constants";
-
-@InputType()
-class UsernamePasswordInput {
-  @Field()
-  username: string;
-
-  @Field()
-  password: string;
-}
+import { COOKIE_NAME, FORGET_PASSWORD_PREFIX } from "../constants";
+import { UsernamePasswordInput } from "../types";
+import { validateRegister } from "../utils/validateRegister";
+import { sendEmail } from "../utils/sendEmail";
+import { v4 } from "uuid";
 
 @ObjectType()
 class FieldError {
@@ -43,6 +37,31 @@ class UserResponse {
 
 @Resolver()
 export class UsersResolver {
+  @Mutation(() => Boolean)
+  async forgotPassword(
+    @Arg("email") email: string,
+    @Ctx() { em, req, redis }: MyContext
+  ): Promise<boolean> {
+    const user = await em.findOne(User, { email });
+    if (!user) return false;
+
+    const token = v4();
+
+    await redis.set(
+      FORGET_PASSWORD_PREFIX + token,
+      user.id,
+      "ex",
+      1000 * 60 * 60 * 24 * 3 // 3 days
+    );
+
+    await sendEmail(
+      email,
+      `<a href="http://localhost:3000/change-password/${token}">reset password</a>`
+    );
+
+    return true;
+  }
+
   @Query(() => User, { nullable: true })
   async me(@Ctx() { em, req }: MyContext) {
     if (!req.session.userId) return null;
@@ -57,25 +76,8 @@ export class UsersResolver {
     @Arg("options") options: UsernamePasswordInput,
     @Ctx() { em, req }: MyContext
   ): Promise<UserResponse> {
-    if (options.username.length <= 2)
-      return {
-        errors: [
-          {
-            field: "username",
-            message: "username is too short",
-          },
-        ],
-      };
-
-    if (options.password.length <= 3)
-      return {
-        errors: [
-          {
-            field: "password",
-            message: "password is too short",
-          },
-        ],
-      };
+    const errors = validateRegister(options);
+    if (errors) return errors;
 
     const hashedPassword = await argon2.hash(options.password);
 
@@ -87,6 +89,7 @@ export class UsersResolver {
         .insert({
           username: options.username,
           password: hashedPassword,
+          email: options.email,
           created_at: new Date(),
           updated_at: new Date(),
         })
@@ -112,22 +115,28 @@ export class UsersResolver {
 
   @Mutation(() => UserResponse)
   async login(
-    @Arg("options") options: UsernamePasswordInput,
+    @Arg("usernameOrEmail") usernameOrEmail: string,
+    @Arg("password") password: string,
     @Ctx() { em, req }: MyContext
   ): Promise<UserResponse> {
-    const user = await em.findOne(User, { username: options.username });
+    const user = await em.findOne(
+      User,
+      usernameOrEmail.includes("@")
+        ? { email: usernameOrEmail }
+        : { username: usernameOrEmail }
+    );
 
     if (!user)
       return {
         errors: [
           {
-            field: "username",
-            message: "that username doesn't exist",
+            field: "usernameOrEmail",
+            message: "that username or email doesn't exist",
           },
         ],
       };
 
-    const validPassword = await argon2.verify(user.password, options.password);
+    const validPassword = await argon2.verify(user.password, password);
 
     if (!validPassword)
       return {
