@@ -1,13 +1,14 @@
 import React from "react";
 import { Formik, Form } from "formik";
 import Wrapper from "../components/Wrapper";
-import { Button, Box } from "@chakra-ui/core";
+import { Button, Box, Flex, Link } from "@chakra-ui/core";
 import InputField from "../components/InputField";
 import { useLoginMutation } from "../generated/graphql";
 import { toErrorMap } from "../utils/toErrorMap";
 import { useRouter } from "next/router";
 import { withUrqlClient } from "next-urql";
 import { createUrqlClient } from "../utils/createUrqlClient";
+import NextLink from "next/link";
 
 interface registerProps {}
 
@@ -47,14 +48,20 @@ const Login: React.FC<registerProps> = ({}) => {
                 type="password"
               />
             </Box>
-            <Button
-              isLoading={isSubmitting}
-              mt={6}
-              variantColor="teal"
-              type="submit"
-            >
-              Login
-            </Button>
+            <Flex alignItems="center" justifyContent="space-between">
+              <Button
+                isLoading={isSubmitting}
+                mt={6}
+                mr={6}
+                variantColor="teal"
+                type="submit"
+              >
+                Login
+              </Button>
+              <NextLink href="/forgot-password">
+                <Link>Forgot Password</Link>
+              </NextLink>
+            </Flex>
           </Form>
         )}
       </Formik>

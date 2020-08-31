@@ -37,6 +37,56 @@ class UserResponse {
 
 @Resolver()
 export class UsersResolver {
+  @Mutation(() => UserResponse)
+  async changePassword(
+    @Arg("token") token: string,
+    @Arg("newPassword") newPassword: string,
+    @Ctx() { em, req, redis }: MyContext
+  ): Promise<UserResponse> {
+    if (newPassword.length < 3)
+      return {
+        errors: [
+          {
+            field: "newPassword",
+            message: "incorrect password",
+          },
+        ],
+      };
+
+    const key = FORGET_PASSWORD_PREFIX + token;
+    const userId = await redis.get(key);
+    if (!userId)
+      return {
+        errors: [
+          {
+            field: "token",
+            message: "invalid request",
+          },
+        ],
+      };
+
+    const user = await em.findOne(User, { id: +userId });
+    if (!user)
+      return {
+        errors: [
+          {
+            field: "token",
+            message: "user no longer exist",
+          },
+        ],
+      };
+
+    user.password = await argon2.hash(newPassword);
+
+    req.session.userId = user.id;
+
+    em.persistAndFlush(user);
+
+    await redis.del(key);
+
+    return { user };
+  }
+
   @Mutation(() => Boolean)
   async forgotPassword(
     @Arg("email") email: string,
@@ -97,15 +147,28 @@ export class UsersResolver {
 
       user = response[0];
     } catch (error) {
-      if (error.code === "23505")
-        return {
-          errors: [
-            {
-              field: "username",
-              message: "username is already exist",
-            },
-          ],
-        };
+      console.log(error);
+      if (error.code === "23505") {
+        if (error.detail.includes("email")) {
+          return {
+            errors: [
+              {
+                field: "email",
+                message: "email is already exist",
+              },
+            ],
+          };
+        } else if (error.detail.includes("username")) {
+          return {
+            errors: [
+              {
+                field: "username",
+                message: "username is already exist",
+              },
+            ],
+          };
+        }
+      }
     }
 
     req.session.userId = user.id;

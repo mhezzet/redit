@@ -12,8 +12,6 @@ const NavBar: React.FC<NavBarProps> = () => {
   });
   const [{ fetching: logoutFetching }, logout] = useLogoutMutation();
 
-  console.log("data", data);
-
   const authLinks = useCallback(() => {
     if (data?.me) {
       return (
